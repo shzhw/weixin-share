@@ -7,6 +7,7 @@ var app = express();
 
 const APPID = 'wx7896f29aad4743d0';
 const APPSECRET = 'f152751b42628d80a07d047f2668409f';
+const TOKEN = 'my_token_key';
 
 app.engine('html', swig.renderFile);
 app.set('views', './views');
@@ -16,33 +17,54 @@ app.use('/public', express.static(__dirname + '/public'));
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
+class WXSignCache {
+  constructor(cnt) {
+    this.time = new Date();
+    this.cnt = cnt;
+  }
+}
+
+var wxsign = null;
+
 app.get('/sendurl', function(req, res) {
+  if (wxsign) {
+    if (new Date() - wxsign.time > 7200) {
+      res.json(wxsign.cnt);
+      return;
+    }
+  }
   getTicket().then(data => {
     var ticket = data.ticket;
-    console.log(ticket);
     var nonceStr = createNonceStr();
     var timestamp = createTimeStamp();
     var url = decodeURIComponent(req.query.oriurl);
     var signature = calcSignature(ticket, nonceStr, timestamp, url);
-    res.json({
-      ticket,
-      nonceStr,
-      timestamp,
-      signature,
-      appid: APPID
-    });
+    wxsign = new WXSignCache({ ticket, nonceStr, timestamp, signature, appid: APPID });
+    res.json(wxsign.cnt);
   });
+});
+
+app.get('/wxtest', function(req, res) {
+  var key = [TOKEN, req.query.timestamp, req.query.nonce].sort().join('');
+
+  var shaObj = new jsSHA(key, 'TEXT');
+
+  console.log(
+    shaObj.getHash('SHA-1', 'HEX'),
+    shaObj.getHash('SHA-1', 'HEX') === req.query.signature
+  );
+  res.end(req.query.echostr);
 });
 
 app.get('/', function(req, res) {
   res.render('index');
 });
 
-var server = app.listen(8080, function() {
+var server = app.listen(80, function() {
   var host = server.address().address;
   var port = server.address().port;
 
-  console.log('the app listening at http://localhost:8080');
+  console.log('the app listening at http://localhost:80');
 });
 
 // noncestr
@@ -128,7 +150,6 @@ function calcSignature(ticket, nonceStr, ts, url) {
     url
   };
   var string = raw(ret);
-  var jsSHA = require('jssha');
   var shaObj = new jsSHA(string, 'TEXT');
   return shaObj.getHash('SHA-1', 'HEX');
 }
@@ -147,4 +168,4 @@ function raw(args) {
   }
   string = string.substr(1);
   return string;
-};
+}
